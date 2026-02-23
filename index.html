@@ -3,10 +3,18 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <!-- CSP: tightens allowable sources for demo. Before production, replace
+         'unsafe-inline' with a nonce/hash-based policy and add a server-side
+         Content-Security-Policy header. -->
+    <meta http-equiv="Content-Security-Policy" content="default-src 'self'; script-src 'self' 'unsafe-inline' https://unpkg.com https://cdn.tailwindcss.com; style-src 'self' 'unsafe-inline' https://fonts.googleapis.com https://cdn.tailwindcss.com; font-src https://fonts.gstatic.com; img-src 'self' data:; connect-src 'none'">
     <title>Rane MaaS - EI-Powered On-Demand Manufacturing</title>
-    <script src="https://unpkg.com/react@18/umd/react.production.min.js"></script>
-    <script src="https://unpkg.com/react-dom@18/umd/react-dom.production.min.js"></script>
-    <script src="https://unpkg.com/@babel/standalone/babel.min.js"></script>
+
+    <!-- CDN scripts pinned to specific versions.
+         TODO before production: add integrity="sha384-..." SRI hashes to each
+         script tag and replace @babel/standalone with a proper build step. -->
+    <script src="https://unpkg.com/react@18.3.1/umd/react.production.min.js"></script>
+    <script src="https://unpkg.com/react-dom@18.3.1/umd/react-dom.production.min.js"></script>
+    <script src="https://unpkg.com/@babel/standalone@7.26.4/babel.min.js"></script>
     <script src="https://cdn.tailwindcss.com"></script>
     <style>
         @import url('https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700;800&display=swap');
@@ -24,96 +32,215 @@
             border-color: #007a6e;
             background-color: #ccfbf1;
         }
+        /* Shared input style — handles focus ring correctly */
+        .input-field {
+            width: 100%;
+            padding: 0.75rem 1rem;
+            border: 1px solid #d1d5db;
+            border-radius: 0.5rem;
+            outline: none;
+            transition: border-color 0.15s ease, box-shadow 0.15s ease;
+        }
+        .input-field:focus {
+            border-color: #007a6e;
+            box-shadow: 0 0 0 3px rgba(0, 122, 110, 0.12);
+        }
+        .input-field.error {
+            border-color: #f87171;
+        }
     </style>
 </head>
 <body class="bg-gray-50">
     <div id="root"></div>
 
     <script type="text/babel">
-        const { useState, useEffect } = React;
+        const { useState } = React;
 
-        function RaneMaaSApp() {
-            const [step, setStep] = useState(1);
-            const [file, setFile] = useState(null);
-            const [formData, setFormData] = useState({
-                material: 'pla',
-                finish: 'raw',
-                quantity: 1,
-                rush: false,
-                name: '',
-                email: '',
-                phone: '',
-                company: '',
-                notes: ''
-            });
-            const [quote, setQuote] = useState(null);
-            const [isDragging, setIsDragging] = useState(false);
-
-            const materials = [
-                { id: 'pla', name: 'PLA', price: 1.0, description: 'Standard strength, easy printing' },
-                { id: 'petg', name: 'PETG', price: 1.3, description: 'Higher strength, heat resistant' },
-                { id: 'nylon', name: 'Nylon', price: 1.8, description: 'Excellent strength, flexible' },
-                { id: 'carbon', name: 'Carbon Fiber', price: 2.5, description: 'Maximum strength, lightweight' },
-                { id: 'tpu', name: 'TPU (Flexible)', price: 1.6, description: 'Rubber-like, shock absorbing' }
-            ];
-
-            const finishes = [
-                { id: 'raw', name: 'Raw (As-Printed)', price: 1.0, days: 0 },
-                { id: 'sanded', name: 'Sanded Smooth', price: 1.4, days: 1 },
-                { id: 'painted', name: 'Painted (Color Match)', price: 2.0, days: 2 },
-                { id: 'premium', name: 'Premium Finish', price: 2.5, days: 3 }
-            ];
-
-            const calculateQuote = () => {
-                const basePricePerCubicInch = 0.50;
-                const estimatedVolume = file ? Math.random() * 20 + 5 : 10;
-                const materialMultiplier = materials.find(m => m.id === formData.material).price;
-                const finishMultiplier = finishes.find(f => f.id === formData.finish).price;
-                const finishDays = finishes.find(f => f.id === formData.finish).days;
-                const basePrice = estimatedVolume * basePricePerCubicInch;
-                const materialCost = basePrice * materialMultiplier;
-                const finishCost = materialCost * finishMultiplier;
-                const quantityDiscount = formData.quantity >= 10 ? 0.85 : formData.quantity >= 5 ? 0.90 : 1.0;
-                const rushMultiplier = formData.rush ? 1.5 : 1.0;
-                const totalPerUnit = (finishCost * quantityDiscount * rushMultiplier);
-                const total = totalPerUnit * formData.quantity;
-                const productionDays = formData.rush ? 2 : 4;
-                const totalDays = productionDays + finishDays;
-                return {
-                    perUnit: totalPerUnit.toFixed(2),
-                    total: total.toFixed(2),
-                    estimatedDays: totalDays,
-                    volume: estimatedVolume.toFixed(1),
-                    savings: ((total * 0.35).toFixed(2))
-                };
-            };
-
-            const handleFileUpload = (e) => {
-                const uploadedFile = e.target.files?.[0] || e.dataTransfer?.files?.[0];
-                if (uploadedFile) {
-                    setFile(uploadedFile);
-                    const newQuote = calculateQuote();
-                    setQuote(newQuote);
+        // ── Error Boundary ────────────────────────────────────────────────────────
+        class ErrorBoundary extends React.Component {
+            constructor(props) {
+                super(props);
+                this.state = { hasError: false };
+            }
+            static getDerivedStateFromError() { return { hasError: true }; }
+            render() {
+                if (this.state.hasError) {
+                    return (
+                        <div className="min-h-screen flex items-center justify-center text-center px-4">
+                            <div>
+                                <h2 className="text-2xl font-bold text-gray-900 mb-2">Something went wrong</h2>
+                                <p className="text-gray-600 mb-4">Please refresh the page to continue.</p>
+                                <button
+                                    onClick={() => window.location.reload()}
+                                    className="px-6 py-2 text-white rounded-lg font-semibold"
+                                    style={{backgroundColor:'#007a6e'}}
+                                >
+                                    Refresh Page
+                                </button>
+                            </div>
+                        </div>
+                    );
                 }
-                setIsDragging(false);
+                return this.props.children;
+            }
+        }
+
+        // ── Constants ─────────────────────────────────────────────────────────────
+        const MATERIALS = [
+            { id: 'pla',    name: 'PLA',            price: 1.0, description: 'Standard strength, easy printing' },
+            { id: 'petg',   name: 'PETG',           price: 1.3, description: 'Higher strength, heat resistant' },
+            { id: 'nylon',  name: 'Nylon',          price: 1.8, description: 'Excellent strength, flexible' },
+            { id: 'carbon', name: 'Carbon Fiber',   price: 2.5, description: 'Maximum strength, lightweight' },
+            { id: 'tpu',    name: 'TPU (Flexible)', price: 1.6, description: 'Rubber-like, shock absorbing' },
+        ];
+
+        const FINISHES = [
+            { id: 'raw',     name: 'Raw (As-Printed)',     price: 1.0, days: 0 },
+            { id: 'sanded',  name: 'Sanded Smooth',        price: 1.4, days: 1 },
+            { id: 'painted', name: 'Painted (Color Match)', price: 2.0, days: 2 },
+            { id: 'premium', name: 'Premium Finish',        price: 2.5, days: 3 },
+        ];
+
+        const ALLOWED_EXTENSIONS = ['.stl', '.obj', '.3mf', '.step', '.stp'];
+        const MAX_FILE_BYTES = 100 * 1024 * 1024; // 100 MB
+
+        const isValidEmail = (email) => /^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email.trim());
+
+        // ── Quote calculation ─────────────────────────────────────────────────────
+        // NOTE (demo): Volume is a fixed representative value (12.5 cu in ≈ small
+        // mechanical part). Production will replace this with server-side geometry
+        // analysis of the uploaded STL/STEP file.
+        const DEMO_VOLUME_CUBIC_IN = 12.5;
+
+        function computeQuote(data) {
+            const qty      = Math.max(1, data.quantity || 1);
+            const material = MATERIALS.find(m => m.id === data.material);
+            const finish   = FINISHES.find(f => f.id === data.finish);
+
+            const base        = DEMO_VOLUME_CUBIC_IN * 0.50;
+            const withMat     = base * material.price;
+            const withFinish  = withMat * finish.price;
+            const discount    = qty >= 10 ? 0.85 : qty >= 5 ? 0.90 : 1.0;
+            const rush        = data.rush ? 1.5 : 1.0;
+            const perUnit     = withFinish * discount * rush;
+            const total       = perUnit * qty;
+            const deliveryDays = (data.rush ? 2 : 4) + finish.days;
+
+            return {
+                perUnit:      perUnit.toFixed(2),
+                total:        total.toFixed(2),
+                deliveryDays,
+                volume:       DEMO_VOLUME_CUBIC_IN.toFixed(1),
+                hasDiscount:  qty >= 5,
+                discountLabel: qty >= 10 ? '15% bulk discount' : qty >= 5 ? '10% bulk discount' : null,
+            };
+        }
+
+        // ── Main component ────────────────────────────────────────────────────────
+        function RaneMaaSApp() {
+            const [step, setStep]             = useState(1);
+            const [file, setFile]             = useState(null);
+            const [fileError, setFileError]   = useState(null);
+            const [formData, setFormData]     = useState({
+                material: 'pla',
+                finish:   'raw',
+                quantity: 1,
+                rush:     false,
+                name:     '',
+                email:    '',
+                phone:    '',
+                company:  '',
+                notes:    '',
+            });
+            const [quote, setQuote]           = useState(null);
+            const [isDragging, setIsDragging] = useState(false);
+            const [submitted, setSubmitted]   = useState(false);
+            const [isSubmitting, setIsSubmitting] = useState(false);
+
+            // ── File handling ─────────────────────────────────────────────────────
+            const processFile = (f) => {
+                const ext = '.' + f.name.split('.').pop().toLowerCase();
+                if (!ALLOWED_EXTENSIONS.includes(ext)) {
+                    setFileError(`Unsupported file type "${ext}". Please upload a STL, OBJ, 3MF, or STEP file.`);
+                    return;
+                }
+                if (f.size > MAX_FILE_BYTES) {
+                    setFileError('File exceeds the 100 MB limit. Please reduce complexity or contact us for large models.');
+                    return;
+                }
+                setFileError(null);
+                setFile(f);
             };
 
-            const handleDragOver = (e) => {
+            const handleFileChange = (e) => {
+                const f = e.target.files?.[0];
+                if (f) processFile(f);
+            };
+
+            const handleDrop = (e) => {
                 e.preventDefault();
-                setIsDragging(true);
+                setIsDragging(false);
+                const f = e.dataTransfer?.files?.[0];
+                if (f) processFile(f);
             };
 
-            const handleDragLeave = () => setIsDragging(false);
-
+            // ── Form state ────────────────────────────────────────────────────────
+            // Pass the updated data object directly into computeQuote to avoid the
+            // stale-closure issue where calculateQuote would see old formData.
             const updateFormData = (field, value) => {
-                const newFormData = { ...formData, [field]: value };
-                setFormData(newFormData);
-                if (file || quote) setQuote(calculateQuote());
+                const next = { ...formData, [field]: value };
+                setFormData(next);
+                if (quote) setQuote(computeQuote(next));
             };
 
-            const handleSubmit = () => {
-                alert(`Order submitted! We'll contact you at ${formData.email} within 4 hours with final quote and timeline.\n\nOrder Summary:\n• File: ${file?.name || 'Manual quote request'}\n• Material: ${materials.find(m => m.id === formData.material).name}\n• Finish: ${finishes.find(f => f.id === formData.finish).name}\n• Quantity: ${formData.quantity}\n• Estimated Total: $${quote?.total || 'TBD'}\n\nThank you for choosing Rane MaaS!`);
+            const handleQuantityChange = (e) => {
+                const raw = parseInt(e.target.value, 10);
+                const qty = isNaN(raw) ? 1 : Math.max(1, Math.min(raw, 9999));
+                updateFormData('quantity', qty);
             };
+
+            // ── Step navigation ───────────────────────────────────────────────────
+            const handleGetQuote = () => {
+                setQuote(computeQuote(formData));
+                setStep(3);
+            };
+
+            // ── Submit ────────────────────────────────────────────────────────────
+            const handleSubmit = (e) => {
+                e.preventDefault();
+                if (isSubmitting || submitted) return;
+                setIsSubmitting(true);
+                // Demo: simulate async submission delay
+                setTimeout(() => {
+                    setIsSubmitting(false);
+                    setSubmitted(true);
+                }, 800);
+            };
+
+            const canSubmit = formData.name.trim() !== '' &&
+                              isValidEmail(formData.email) &&
+                              !isSubmitting;
+
+            const handleReset = () => {
+                setSubmitted(false);
+                setStep(1);
+                setFile(null);
+                setFileError(null);
+                setQuote(null);
+                setFormData({ material:'pla', finish:'raw', quantity:1, rush:false, name:'', email:'', phone:'', company:'', notes:'' });
+            };
+
+            // ── Render ────────────────────────────────────────────────────────────
+            if (submitted) {
+                return (
+                    <SuccessScreen
+                        formData={formData}
+                        quote={quote}
+                        file={file}
+                        onReset={handleReset}
+                    />
+                );
+            }
 
             return (
                 <div className="min-h-screen">
@@ -139,246 +266,112 @@
                             <h2 className="text-4xl font-bold mb-4">Same-Week Parts. American-Made. EI-Orchestrated.</h2>
                             <p className="text-xl text-teal-100 mb-6">30% cheaper than Xometry. Faster than China. Your part, compiled this week.</p>
                             <div className="flex justify-center gap-8 text-sm flex-wrap">
-                                <div className="flex items-center gap-2">
-                                    <svg className="w-5 h-5 text-teal-300" fill="currentColor" viewBox="0 0 20 20"><path fillRule="evenodd" d="M10 18a8 8 0 100-16 8 8 0 000 16zm3.707-9.293a1 1 0 00-1.414-1.414L9 10.586 7.707 9.293a1 1 0 00-1.414 1.414l2 2a1 1 0 001.414 0l4-4z" clipRule="evenodd"/></svg>
-                                    <span>3-7 Day Delivery</span>
-                                </div>
-                                <div className="flex items-center gap-2">
-                                    <svg className="w-5 h-5 text-teal-300" fill="currentColor" viewBox="0 0 20 20"><path fillRule="evenodd" d="M10 18a8 8 0 100-16 8 8 0 000 16zm3.707-9.293a1 1 0 00-1.414-1.414L9 10.586 7.707 9.293a1 1 0 00-1.414 1.414l2 2a1 1 0 001.414 0l4-4z" clipRule="evenodd"/></svg>
-                                    <span>Quality Guaranteed</span>
-                                </div>
-                                <div className="flex items-center gap-2">
-                                    <svg className="w-5 h-5 text-teal-300" fill="currentColor" viewBox="0 0 20 20"><path fillRule="evenodd" d="M10 18a8 8 0 100-16 8 8 0 000 16zm3.707-9.293a1 1 0 00-1.414-1.414L9 10.586 7.707 9.293a1 1 0 00-1.414 1.414l2 2a1 1 0 001.414 0l4-4z" clipRule="evenodd"/></svg>
-                                    <span>Any Material, Any Geometry</span>
-                                </div>
+                                {['3–7 Day Delivery', 'Quality Guaranteed', 'Any Material, Any Geometry'].map(label => (
+                                    <div key={label} className="flex items-center gap-2">
+                                        <svg className="w-5 h-5 text-teal-300" fill="currentColor" viewBox="0 0 20 20">
+                                            <path fillRule="evenodd" d="M10 18a8 8 0 100-16 8 8 0 000 16zm3.707-9.293a1 1 0 00-1.414-1.414L9 10.586 7.707 9.293a1 1 0 00-1.414 1.414l2 2a1 1 0 001.414 0l4-4z" clipRule="evenodd"/>
+                                        </svg>
+                                        <span>{label}</span>
+                                    </div>
+                                ))}
                             </div>
                         </div>
                     </div>
 
-                    {/* Main Content */}
-                    <div className="max-w-5xl mx-auto px-4 sm:px-6 lg:px-8 py-12">
+                    {/* Step Indicator + Panels */}
+                    <div className="max-w-5xl mx-auto px-4 sm:px-6 lg:px-8 pt-10 pb-4">
+                        <StepIndicator
+                            current={step}
+                            steps={['Upload Part', 'Configure Order', 'Review Quote', 'Submit Request']}
+                        />
+                    </div>
 
-                        {/* Step 1: Upload */}
-                        <div className="bg-white rounded-lg shadow-md p-8 mb-8">
-                            <div className="flex items-center gap-3 mb-6">
-                                <div className="w-8 h-8 rounded-full text-white flex items-center justify-center font-bold" style={{backgroundColor:'#007a6e'}}>1</div>
-                                <h3 className="text-2xl font-bold text-gray-900">Upload Your Part</h3>
-                            </div>
-                            <div
-                                className={`file-upload-area rounded-lg p-12 text-center ${isDragging ? 'dragover' : ''}`}
-                                onDrop={handleFileUpload}
-                                onDragOver={handleDragOver}
-                                onDragLeave={handleDragLeave}
-                            >
-                                <input type="file" id="file-upload" className="hidden" accept=".stl,.obj,.3mf,.step,.stp" onChange={handleFileUpload} />
-                                <label htmlFor="file-upload" className="cursor-pointer">
-                                    <svg className="w-16 h-16 mx-auto mb-4" style={{color:'#00c9b1'}} fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                                        <path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M7 16a4 4 0 01-.88-7.903A5 5 0 1115.9 6L16 6a5 5 0 011 9.9M15 13l-3-3m0 0l-3 3m3-3v12"/>
-                                    </svg>
-                                    <p className="text-lg font-semibold text-gray-700 mb-2">
-                                        {file ? file.name : 'Drop your 3D file here or click to browse'}
-                                    </p>
-                                    <p className="text-sm text-gray-500">Supports: STL, OBJ, 3MF, STEP (Max 100MB)</p>
-                                </label>
-                            </div>
-                            {file && (
-                                <div className="mt-4 p-4 rounded-lg" style={{backgroundColor:'#f0fdf9', border:'1px solid #99f6e4'}}>
-                                    <p className="font-semibold" style={{color:'#065f46'}}>✓ File uploaded successfully</p>
-                                    <p className="text-sm mt-1" style={{color:'#047857'}}>Aura EI is analyzing your part geometry...</p>
-                                </div>
-                            )}
-                            <p className="text-sm text-gray-500 mt-4 text-center">
-                                Don't have a 3D file? <span style={{color:'#007a6e'}} className="font-semibold cursor-pointer">Request a manual quote →</span>
-                            </p>
-                        </div>
-
-                        {/* Step 2: Configure */}
-                        <div className="bg-white rounded-lg shadow-md p-8 mb-8">
-                            <div className="flex items-center gap-3 mb-6">
-                                <div className="w-8 h-8 rounded-full text-white flex items-center justify-center font-bold" style={{backgroundColor:'#007a6e'}}>2</div>
-                                <h3 className="text-2xl font-bold text-gray-900">Configure Your Order</h3>
-                            </div>
-                            <div className="mb-6">
-                                <label className="block text-sm font-semibold text-gray-700 mb-3">Material</label>
-                                <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-3">
-                                    {materials.map(material => (
-                                        <div
-                                            key={material.id}
-                                            onClick={() => updateFormData('material', material.id)}
-                                            className="p-4 rounded-lg border-2 cursor-pointer transition-all"
-                                            style={{
-                                                borderColor: formData.material === material.id ? '#007a6e' : '#e5e7eb',
-                                                backgroundColor: formData.material === material.id ? '#f0fdf9' : 'white'
-                                            }}
-                                        >
-                                            <p className="font-semibold text-gray-900">{material.name}</p>
-                                            <p className="text-xs text-gray-600 mt-1">{material.description}</p>
-                                            <p className="text-sm font-semibold mt-2" style={{color:'#007a6e'}}>{material.price}x base price</p>
-                                        </div>
-                                    ))}
-                                </div>
-                            </div>
-                            <div className="mb-6">
-                                <label className="block text-sm font-semibold text-gray-700 mb-3">Finish</label>
-                                <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
-                                    {finishes.map(finish => (
-                                        <div
-                                            key={finish.id}
-                                            onClick={() => updateFormData('finish', finish.id)}
-                                            className="p-4 rounded-lg border-2 cursor-pointer transition-all"
-                                            style={{
-                                                borderColor: formData.finish === finish.id ? '#007a6e' : '#e5e7eb',
-                                                backgroundColor: formData.finish === finish.id ? '#f0fdf9' : 'white'
-                                            }}
-                                        >
-                                            <div className="flex justify-between items-start">
-                                                <div>
-                                                    <p className="font-semibold text-gray-900">{finish.name}</p>
-                                                    <p className="text-xs text-gray-600 mt-1">+{finish.days} days</p>
-                                                </div>
-                                                <p className="text-sm font-semibold" style={{color:'#007a6e'}}>{finish.price}x</p>
-                                            </div>
-                                        </div>
-                                    ))}
-                                </div>
-                            </div>
-                            <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
-                                <div>
-                                    <label className="block text-sm font-semibold text-gray-700 mb-2">Quantity</label>
-                                    <input
-                                        type="number" min="1"
-                                        value={formData.quantity}
-                                        onChange={(e) => updateFormData('quantity', parseInt(e.target.value))}
-                                        className="w-full px-4 py-3 border border-gray-300 rounded-lg focus:outline-none"
-                                        style={{focusBorderColor:'#007a6e'}}
-                                    />
-                                    {formData.quantity >= 5 && (
-                                        <p className="text-sm mt-1" style={{color:'#047857'}}>✓ Volume discount applied!</p>
-                                    )}
-                                </div>
-                                <div className="flex items-end">
-                                    <label className="flex items-center cursor-pointer">
-                                        <input
-                                            type="checkbox"
-                                            checked={formData.rush}
-                                            onChange={(e) => updateFormData('rush', e.target.checked)}
-                                            className="w-5 h-5 rounded"
-                                        />
-                                        <span className="ml-3">
-                                            <span className="block font-semibold text-gray-900">Rush Order</span>
-                                            <span className="block text-sm text-gray-600">2-day turnaround (+50%)</span>
-                                        </span>
-                                    </label>
-                                </div>
-                            </div>
-                        </div>
-
-                        {/* Step 3: Quote */}
-                        {quote && (
-                            <div className="rounded-lg shadow-lg p-8 mb-8 text-white" style={{background:'linear-gradient(135deg, #0a3d35 0%, #007a6e 100%)'}}>
-                                <div className="flex items-center gap-3 mb-6">
-                                    <div className="w-8 h-8 rounded-full bg-white flex items-center justify-center font-bold" style={{color:'#007a6e'}}>3</div>
-                                    <h3 className="text-2xl font-bold">Your Instant Quote</h3>
-                                </div>
-                                <div className="grid grid-cols-1 md:grid-cols-3 gap-6 mb-6">
-                                    <div className="rounded-lg p-4" style={{backgroundColor:'rgba(255,255,255,0.1)'}}>
-                                        <p className="text-teal-100 text-sm">Price Per Unit</p>
-                                        <p className="text-3xl font-bold mt-1">${quote.perUnit}</p>
-                                    </div>
-                                    <div className="rounded-lg p-4" style={{backgroundColor:'rgba(255,255,255,0.1)'}}>
-                                        <p className="text-teal-100 text-sm">Total Cost</p>
-                                        <p className="text-3xl font-bold mt-1">${quote.total}</p>
-                                    </div>
-                                    <div className="rounded-lg p-4" style={{backgroundColor:'rgba(255,255,255,0.1)'}}>
-                                        <p className="text-teal-100 text-sm">Estimated Delivery</p>
-                                        <p className="text-3xl font-bold mt-1">{quote.estimatedDays} days</p>
-                                    </div>
-                                </div>
-                                <div className="rounded-lg p-4" style={{backgroundColor:'rgba(0,201,177,0.15)', border:'1px solid rgba(0,201,177,0.3)'}}>
-                                    <p className="font-semibold">💰 You save ~${quote.savings} vs. Xometry/Protolabs</p>
-                                    <p className="text-sm mt-1" style={{color:'#99f6e4'}}>30% average cost savings on comparable orders</p>
-                                </div>
-                                <div className="rounded-lg p-4 mt-3" style={{backgroundColor:'rgba(255,255,255,0.08)', border:'1px solid rgba(255,255,255,0.15)'}}>
-                                    <p className="text-sm font-semibold text-white">⚡ Powered by Sovereign Nodes — our EI-orchestrated micro-factories.</p>
-                                </div>
-                            </div>
+                    <div className="max-w-5xl mx-auto px-4 sm:px-6 lg:px-8 pb-12">
+                        {step === 1 && (
+                            <UploadStep
+                                file={file}
+                                fileError={fileError}
+                                isDragging={isDragging}
+                                onFileChange={handleFileChange}
+                                onDrop={handleDrop}
+                                onDragOver={(e) => { e.preventDefault(); setIsDragging(true); }}
+                                onDragLeave={() => setIsDragging(false)}
+                                onContinue={() => setStep(2)}
+                            />
                         )}
 
-                        {/* Step 4: Contact */}
-                        <div className="bg-white rounded-lg shadow-md p-8">
-                            <div className="flex items-center gap-3 mb-6">
-                                <div className="w-8 h-8 rounded-full text-white flex items-center justify-center font-bold" style={{backgroundColor:'#007a6e'}}>4</div>
-                                <h3 className="text-2xl font-bold text-gray-900">Contact Information</h3>
-                            </div>
-                            <div className="grid grid-cols-1 md:grid-cols-2 gap-6 mb-6">
-                                <div>
-                                    <label className="block text-sm font-semibold text-gray-700 mb-2">Full Name *</label>
-                                    <input type="text" value={formData.name} onChange={(e) => updateFormData('name', e.target.value)} className="w-full px-4 py-3 border border-gray-300 rounded-lg" placeholder="John Doe" required />
-                                </div>
-                                <div>
-                                    <label className="block text-sm font-semibold text-gray-700 mb-2">Email *</label>
-                                    <input type="email" value={formData.email} onChange={(e) => updateFormData('email', e.target.value)} className="w-full px-4 py-3 border border-gray-300 rounded-lg" placeholder="john@company.com" required />
-                                </div>
-                                <div>
-                                    <label className="block text-sm font-semibold text-gray-700 mb-2">Phone</label>
-                                    <input type="tel" value={formData.phone} onChange={(e) => updateFormData('phone', e.target.value)} className="w-full px-4 py-3 border border-gray-300 rounded-lg" placeholder="(555) 123-4567" />
-                                </div>
-                                <div>
-                                    <label className="block text-sm font-semibold text-gray-700 mb-2">Company</label>
-                                    <input type="text" value={formData.company} onChange={(e) => updateFormData('company', e.target.value)} className="w-full px-4 py-3 border border-gray-300 rounded-lg" placeholder="Company Name" />
-                                </div>
-                            </div>
-                            <div className="mb-6">
-                                <label className="block text-sm font-semibold text-gray-700 mb-2">Additional Notes</label>
-                                <textarea value={formData.notes} onChange={(e) => updateFormData('notes', e.target.value)} rows="4" className="w-full px-4 py-3 border border-gray-300 rounded-lg" placeholder="Special requirements, color preferences, delivery instructions..." />
-                            </div>
-                            <button
-                                onClick={handleSubmit}
-                                disabled={!formData.name || !formData.email}
-                                className="w-full text-white py-4 px-6 rounded-lg font-bold text-lg transition-all disabled:opacity-50 disabled:cursor-not-allowed"
-                                style={{background:'linear-gradient(135deg, #0a3d35 0%, #007a6e 100%)'}}
-                            >
-                                Submit Order Request
-                            </button>
-                            <p className="text-sm text-gray-500 text-center mt-4">We'll review your request and send a final quote within 4 hours</p>
-                        </div>
+                        {step === 2 && (
+                            <ConfigureStep
+                                formData={formData}
+                                onUpdate={updateFormData}
+                                onQuantityChange={handleQuantityChange}
+                                onBack={() => setStep(1)}
+                                onGetQuote={handleGetQuote}
+                            />
+                        )}
 
-                        {/* Footer Info */}
+                        {step === 3 && quote && (
+                            <QuoteStep
+                                quote={quote}
+                                formData={formData}
+                                onBack={() => setStep(2)}
+                                onContinue={() => setStep(4)}
+                            />
+                        )}
+
+                        {step === 4 && (
+                            <ContactStep
+                                formData={formData}
+                                quote={quote}
+                                file={file}
+                                onUpdate={updateFormData}
+                                onSubmit={handleSubmit}
+                                onBack={() => setStep(3)}
+                                canSubmit={canSubmit}
+                                isSubmitting={isSubmitting}
+                            />
+                        )}
+
+                        {/* Footer Cards */}
                         <div className="mt-12 grid grid-cols-1 md:grid-cols-3 gap-6 text-center">
-                            <div className="bg-white rounded-lg shadow p-6">
-                                <div className="text-4xl mb-3">🇺🇸</div>
-                                <h4 className="font-bold text-gray-900 mb-2">Made in America</h4>
-                                <p className="text-sm text-gray-600">Veteran-owned, Fresno CA</p>
-                            </div>
-                            <div className="bg-white rounded-lg shadow p-6">
-                                <div className="text-4xl mb-3">⚡</div>
-                                <h4 className="font-bold text-gray-900 mb-2">Emergent Intelligence</h4>
-                                <p className="text-sm text-gray-600">Aura EI optimizes every compile</p>
-                            </div>
-                            <div className="bg-white rounded-lg shadow p-6">
-                                <div className="text-4xl mb-3">📦</div>
-                                <h4 className="font-bold text-gray-900 mb-2">Same-Week Delivery</h4>
-                                <p className="text-sm text-gray-600">3-7 days standard, 2 days rush</p>
-                            </div>
+                            {[
+                                { icon: '🇺🇸', title: 'Made in America',       sub: 'Veteran-owned, Fresno CA' },
+                                { icon: '⚡',  title: 'Emergent Intelligence',  sub: 'Aura EI optimizes every compile' },
+                                { icon: '📦',  title: 'Same-Week Delivery',     sub: '3–7 days standard, 2 days rush' },
+                            ].map(({ icon, title, sub }) => (
+                                <div key={title} className="bg-white rounded-lg shadow p-6">
+                                    <div className="text-4xl mb-3">{icon}</div>
+                                    <h4 className="font-bold text-gray-900 mb-2">{title}</h4>
+                                    <p className="text-sm text-gray-600">{sub}</p>
+                                </div>
+                            ))}
                         </div>
 
                         {/* Contact CTA */}
-                        <div className="mt-12 text-center bg-gray-100 rounded-lg p-8">
+                        <div className="mt-8 text-center bg-gray-100 rounded-lg p-8">
                             <h3 className="text-2xl font-bold text-gray-900 mb-4">Questions? Need a Custom Quote?</h3>
                             <p className="text-gray-600 mb-6">Our team is ready to help with complex projects, volume orders, or special materials.</p>
                             <div className="flex flex-col sm:flex-row gap-4 justify-center">
-                                <a href="mailto:garycollins9267@gmail.com" className="px-6 py-3 text-white rounded-lg font-semibold transition-colors" style={{backgroundColor:'#007a6e'}}>
-                                    Email: garycollins9267@gmail.com
+                                <a
+                                    href="mailto:garycollins9267@gmail.com"
+                                    className="px-6 py-3 text-white rounded-lg font-semibold transition-opacity hover:opacity-90"
+                                    style={{backgroundColor:'#007a6e'}}
+                                >
+                                    Email Us
                                 </a>
-                                <a href="tel:5102821383" className="px-6 py-3 border-2 rounded-lg font-semibold transition-colors" style={{borderColor:'#007a6e', color:'#007a6e'}}>
-                                    Call: (510) 282-1383
+                                <a
+                                    href="tel:5102821383"
+                                    className="px-6 py-3 border-2 rounded-lg font-semibold transition-colors hover:bg-teal-50"
+                                    style={{borderColor:'#007a6e', color:'#007a6e'}}
+                                >
+                                    (510) 282-1383
                                 </a>
                             </div>
                         </div>
                     </div>
 
                     {/* Footer */}
-                    <footer className="text-white py-8 mt-16" style={{backgroundColor:'#0a0e1a'}}>
+                    <footer className="text-white py-8" style={{backgroundColor:'#0a0e1a'}}>
                         <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 text-center">
                             <p className="text-gray-400 mb-2">© 2026 Rane Dynamics | Fresno, California</p>
                             <p className="text-sm text-gray-500">Veteran-Owned | DVBE Certified | EI-Orchestrated Manufacturing</p>
@@ -389,7 +382,466 @@
             );
         }
 
-        ReactDOM.render(<RaneMaaSApp />, document.getElementById('root'));
+        // ── Sub-components ────────────────────────────────────────────────────────
+
+        function StepIndicator({ current, steps }) {
+            return (
+                <nav aria-label="Order progress" className="flex items-center mb-2">
+                    {steps.map((label, i) => {
+                        const n      = i + 1;
+                        const done   = n < current;
+                        const active = n === current;
+                        return (
+                            <React.Fragment key={n}>
+                                <div className="flex flex-col items-center">
+                                    <div className={`w-9 h-9 rounded-full flex items-center justify-center font-bold text-sm border-2 transition-all ${
+                                        done   ? 'border-teal-600 bg-teal-600 text-white' :
+                                        active ? 'border-teal-600 bg-white text-teal-700' :
+                                                 'border-gray-300 bg-white text-gray-400'
+                                    }`}>
+                                        {done ? (
+                                            <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                                                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2.5" d="M5 13l4 4L19 7"/>
+                                            </svg>
+                                        ) : n}
+                                    </div>
+                                    <span className={`mt-1 text-xs font-medium hidden sm:block ${
+                                        active ? 'text-teal-700' : done ? 'text-teal-600' : 'text-gray-400'
+                                    }`}>
+                                        {label}
+                                    </span>
+                                </div>
+                                {i < steps.length - 1 && (
+                                    <div className={`flex-1 h-0.5 mx-2 mb-4 transition-colors ${done ? 'bg-teal-600' : 'bg-gray-200'}`} />
+                                )}
+                            </React.Fragment>
+                        );
+                    })}
+                </nav>
+            );
+        }
+
+        function UploadStep({ file, fileError, isDragging, onFileChange, onDrop, onDragOver, onDragLeave, onContinue }) {
+            return (
+                <div className="bg-white rounded-lg shadow-md p-8">
+                    <SectionHeader n={1} title="Upload Your Part" />
+                    <div
+                        className={`file-upload-area rounded-lg p-12 text-center ${isDragging ? 'dragover' : ''}`}
+                        onDrop={onDrop}
+                        onDragOver={onDragOver}
+                        onDragLeave={onDragLeave}
+                    >
+                        <input
+                            type="file"
+                            id="file-upload"
+                            className="hidden"
+                            accept=".stl,.obj,.3mf,.step,.stp"
+                            onChange={onFileChange}
+                        />
+                        <label htmlFor="file-upload" className="cursor-pointer block">
+                            <svg className="w-16 h-16 mx-auto mb-4" style={{color:'#00c9b1'}} fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M7 16a4 4 0 01-.88-7.903A5 5 0 1115.9 6L16 6a5 5 0 011 9.9M15 13l-3-3m0 0l-3 3m3-3v12"/>
+                            </svg>
+                            <p className="text-lg font-semibold text-gray-700 mb-2">
+                                {file ? file.name : 'Drop your 3D file here or click to browse'}
+                            </p>
+                            <p className="text-sm text-gray-500">Supports: STL, OBJ, 3MF, STEP (Max 100 MB)</p>
+                        </label>
+                    </div>
+
+                    {fileError && (
+                        <div className="mt-3 p-3 rounded-lg bg-red-50 border border-red-200">
+                            <p className="text-sm font-medium text-red-700">{fileError}</p>
+                        </div>
+                    )}
+
+                    {file && !fileError && (
+                        <div className="mt-4 p-4 rounded-lg" style={{backgroundColor:'#f0fdf9', border:'1px solid #99f6e4'}}>
+                            <p className="font-semibold" style={{color:'#065f46'}}>✓ File ready: {file.name}</p>
+                            <p className="text-sm mt-1" style={{color:'#047857'}}>
+                                {(file.size / 1024).toFixed(1)} KB · Aura EI will analyze geometry on submission
+                            </p>
+                        </div>
+                    )}
+
+                    <p className="text-sm text-gray-500 mt-4 text-center">
+                        Don't have a 3D file?{' '}
+                        <a
+                            href="mailto:garycollins9267@gmail.com?subject=Manual%20Quote%20Request"
+                            style={{color:'#007a6e'}}
+                            className="font-semibold hover:underline"
+                        >
+                            Request a manual quote →
+                        </a>
+                    </p>
+
+                    <div className="mt-6 flex justify-end">
+                        <button
+                            onClick={onContinue}
+                            disabled={!file}
+                            className="px-8 py-3 text-white rounded-lg font-semibold transition-opacity disabled:opacity-40 disabled:cursor-not-allowed hover:opacity-90"
+                            style={{background:'linear-gradient(135deg, #0a3d35 0%, #007a6e 100%)'}}
+                        >
+                            Continue →
+                        </button>
+                    </div>
+                </div>
+            );
+        }
+
+        function ConfigureStep({ formData, onUpdate, onQuantityChange, onBack, onGetQuote }) {
+            return (
+                <div className="bg-white rounded-lg shadow-md p-8">
+                    <SectionHeader n={2} title="Configure Your Order" />
+
+                    <div className="mb-6">
+                        <p className="block text-sm font-semibold text-gray-700 mb-3">Material</p>
+                        <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-3" role="group" aria-label="Material selection">
+                            {MATERIALS.map(mat => (
+                                <SelectCard
+                                    key={mat.id}
+                                    selected={formData.material === mat.id}
+                                    onClick={() => onUpdate('material', mat.id)}
+                                    title={mat.name}
+                                    sub={mat.description}
+                                    badge={`${mat.price}× base`}
+                                />
+                            ))}
+                        </div>
+                    </div>
+
+                    <div className="mb-6">
+                        <p className="block text-sm font-semibold text-gray-700 mb-3">Finish</p>
+                        <div className="grid grid-cols-1 md:grid-cols-2 gap-3" role="group" aria-label="Finish selection">
+                            {FINISHES.map(fin => (
+                                <SelectCard
+                                    key={fin.id}
+                                    selected={formData.finish === fin.id}
+                                    onClick={() => onUpdate('finish', fin.id)}
+                                    title={fin.name}
+                                    sub={fin.days === 0 ? 'No extra days' : `+${fin.days} day${fin.days > 1 ? 's' : ''}`}
+                                    badge={`${fin.price}×`}
+                                />
+                            ))}
+                        </div>
+                    </div>
+
+                    <div className="grid grid-cols-1 md:grid-cols-2 gap-6 mb-8">
+                        <div>
+                            <label htmlFor="qty" className="block text-sm font-semibold text-gray-700 mb-2">Quantity</label>
+                            <input
+                                id="qty"
+                                type="number"
+                                min="1"
+                                max="9999"
+                                value={formData.quantity}
+                                onChange={onQuantityChange}
+                                className="input-field"
+                            />
+                            {formData.quantity >= 5 && (
+                                <p className="text-sm mt-1 font-medium" style={{color:'#047857'}}>
+                                    ✓ {formData.quantity >= 10 ? '15%' : '10%'} bulk discount applied
+                                </p>
+                            )}
+                        </div>
+                        <div className="flex items-end">
+                            <label className="flex items-center cursor-pointer">
+                                <input
+                                    type="checkbox"
+                                    checked={formData.rush}
+                                    onChange={(e) => onUpdate('rush', e.target.checked)}
+                                    className="w-5 h-5 rounded accent-teal-600"
+                                />
+                                <span className="ml-3">
+                                    <span className="block font-semibold text-gray-900">Rush Order</span>
+                                    <span className="block text-sm text-gray-600">2-day turnaround (+50%)</span>
+                                </span>
+                            </label>
+                        </div>
+                    </div>
+
+                    <div className="flex justify-between">
+                        <button
+                            onClick={onBack}
+                            className="px-6 py-3 border-2 rounded-lg font-semibold text-gray-600 hover:bg-gray-50 transition-colors"
+                            style={{borderColor:'#e5e7eb'}}
+                        >
+                            ← Back
+                        </button>
+                        <button
+                            onClick={onGetQuote}
+                            className="px-8 py-3 text-white rounded-lg font-bold transition-opacity hover:opacity-90"
+                            style={{background:'linear-gradient(135deg, #0a3d35 0%, #007a6e 100%)'}}
+                        >
+                            Get Instant Quote →
+                        </button>
+                    </div>
+                </div>
+            );
+        }
+
+        function QuoteStep({ quote, formData, onBack, onContinue }) {
+            const material = MATERIALS.find(m => m.id === formData.material);
+            const finish   = FINISHES.find(f => f.id === formData.finish);
+            return (
+                <div className="rounded-lg shadow-lg p-8 text-white" style={{background:'linear-gradient(135deg, #0a3d35 0%, #007a6e 100%)'}}>
+                    <SectionHeader n={3} title="Your Instant Quote" light />
+
+                    <div className="grid grid-cols-1 md:grid-cols-3 gap-6 mb-6">
+                        {[
+                            { label: 'Price Per Unit', value: `$${quote.perUnit}` },
+                            { label: 'Total Cost',     value: `$${quote.total}` },
+                            { label: 'Est. Delivery',  value: `${quote.deliveryDays} days` },
+                        ].map(({ label, value }) => (
+                            <div key={label} className="rounded-lg p-4" style={{backgroundColor:'rgba(255,255,255,0.1)'}}>
+                                <p className="text-teal-100 text-sm">{label}</p>
+                                <p className="text-3xl font-bold mt-1">{value}</p>
+                            </div>
+                        ))}
+                    </div>
+
+                    <div className="rounded-lg p-4 mb-4" style={{backgroundColor:'rgba(255,255,255,0.08)', border:'1px solid rgba(255,255,255,0.15)'}}>
+                        <p className="text-sm font-medium">
+                            {material.name} · {finish.name} · Qty {formData.quantity}
+                            {formData.rush ? ' · Rush (2-day)' : ''}
+                            {quote.hasDiscount ? ` · ${quote.discountLabel}` : ''}
+                        </p>
+                        <p className="text-xs mt-1 text-teal-200">
+                            Demo pricing based on {quote.volume} in³ representative volume.
+                            Final quote confirmed after geometry analysis.
+                        </p>
+                    </div>
+
+                    <div className="rounded-lg p-4 mb-6" style={{backgroundColor:'rgba(0,201,177,0.15)', border:'1px solid rgba(0,201,177,0.3)'}}>
+                        <p className="font-semibold">✓ ~30% average cost savings vs. Xometry / Protolabs</p>
+                        <p className="text-sm mt-1" style={{color:'#99f6e4'}}>⚡ Powered by Sovereign Nodes — EI-orchestrated micro-factories</p>
+                    </div>
+
+                    <div className="flex justify-between">
+                        <button
+                            onClick={onBack}
+                            className="px-6 py-3 rounded-lg font-semibold text-white border-2 hover:bg-white hover:bg-opacity-10 transition-colors"
+                            style={{borderColor:'rgba(255,255,255,0.4)'}}
+                        >
+                            ← Adjust Order
+                        </button>
+                        <button
+                            onClick={onContinue}
+                            className="px-8 py-3 rounded-lg font-bold bg-white transition-opacity hover:opacity-90"
+                            style={{color:'#007a6e'}}
+                        >
+                            Request This Order →
+                        </button>
+                    </div>
+                </div>
+            );
+        }
+
+        function ContactStep({ formData, quote, file, onUpdate, onSubmit, onBack, canSubmit, isSubmitting }) {
+            const material     = MATERIALS.find(m => m.id === formData.material);
+            const finish       = FINISHES.find(f => f.id === formData.finish);
+            const emailTouched = formData.email.length > 0;
+            const emailOk      = !emailTouched || isValidEmail(formData.email);
+
+            return (
+                <div className="bg-white rounded-lg shadow-md p-8">
+                    <SectionHeader n={4} title="Contact Information" />
+
+                    {quote && (
+                        <div className="mb-6 p-4 rounded-lg text-sm" style={{backgroundColor:'#f0fdf9', border:'1px solid #99f6e4'}}>
+                            <p className="font-semibold text-teal-800">Order Summary</p>
+                            <p className="text-teal-700 mt-1">
+                                {file?.name || 'Manual quote'} · {material.name} · {finish.name} · Qty {formData.quantity}
+                                {formData.rush ? ' · Rush' : ''} · <strong>${quote.total}</strong> total
+                            </p>
+                        </div>
+                    )}
+
+                    <form onSubmit={onSubmit} noValidate>
+                        <div className="grid grid-cols-1 md:grid-cols-2 gap-6 mb-6">
+                            <div>
+                                <label htmlFor="c-name" className="block text-sm font-semibold text-gray-700 mb-2">
+                                    Full Name <span className="text-red-500">*</span>
+                                </label>
+                                <input
+                                    id="c-name"
+                                    type="text"
+                                    value={formData.name}
+                                    onChange={(e) => onUpdate('name', e.target.value)}
+                                    className="input-field"
+                                    placeholder="Jane Smith"
+                                    autoComplete="name"
+                                />
+                            </div>
+                            <div>
+                                <label htmlFor="c-email" className="block text-sm font-semibold text-gray-700 mb-2">
+                                    Email <span className="text-red-500">*</span>
+                                </label>
+                                <input
+                                    id="c-email"
+                                    type="email"
+                                    value={formData.email}
+                                    onChange={(e) => onUpdate('email', e.target.value)}
+                                    className={`input-field ${!emailOk ? 'error' : ''}`}
+                                    placeholder="jane@company.com"
+                                    autoComplete="email"
+                                />
+                                {!emailOk && (
+                                    <p className="text-xs text-red-600 mt-1">Please enter a valid email address.</p>
+                                )}
+                            </div>
+                            <div>
+                                <label htmlFor="c-phone" className="block text-sm font-semibold text-gray-700 mb-2">Phone</label>
+                                <input
+                                    id="c-phone"
+                                    type="tel"
+                                    value={formData.phone}
+                                    onChange={(e) => onUpdate('phone', e.target.value)}
+                                    className="input-field"
+                                    placeholder="(555) 123-4567"
+                                    autoComplete="tel"
+                                />
+                            </div>
+                            <div>
+                                <label htmlFor="c-company" className="block text-sm font-semibold text-gray-700 mb-2">Company</label>
+                                <input
+                                    id="c-company"
+                                    type="text"
+                                    value={formData.company}
+                                    onChange={(e) => onUpdate('company', e.target.value)}
+                                    className="input-field"
+                                    placeholder="Company Name"
+                                    autoComplete="organization"
+                                />
+                            </div>
+                        </div>
+
+                        <div className="mb-6">
+                            <label htmlFor="c-notes" className="block text-sm font-semibold text-gray-700 mb-2">Additional Notes</label>
+                            <textarea
+                                id="c-notes"
+                                value={formData.notes}
+                                onChange={(e) => onUpdate('notes', e.target.value)}
+                                rows="4"
+                                className="input-field"
+                                placeholder="Special requirements, color preferences, delivery instructions…"
+                            />
+                        </div>
+
+                        <div className="flex flex-col sm:flex-row justify-between items-center gap-4">
+                            <button
+                                type="button"
+                                onClick={onBack}
+                                className="px-6 py-3 border-2 rounded-lg font-semibold text-gray-600 hover:bg-gray-50 transition-colors w-full sm:w-auto"
+                                style={{borderColor:'#e5e7eb'}}
+                            >
+                                ← Back
+                            </button>
+                            <button
+                                type="submit"
+                                disabled={!canSubmit}
+                                className="px-8 py-4 text-white rounded-lg font-bold text-lg transition-opacity disabled:opacity-40 disabled:cursor-not-allowed hover:opacity-90 w-full sm:w-auto"
+                                style={{background:'linear-gradient(135deg, #0a3d35 0%, #007a6e 100%)'}}
+                            >
+                                {isSubmitting ? 'Submitting…' : 'Submit Order Request'}
+                            </button>
+                        </div>
+                        <p className="text-sm text-gray-500 text-center mt-4">We'll review your request and follow up within 4 hours.</p>
+                    </form>
+                </div>
+            );
+        }
+
+        function SuccessScreen({ formData, quote, file, onReset }) {
+            return (
+                <div className="min-h-screen flex flex-col">
+                    <header className="gradient-bg text-white shadow-lg">
+                        <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-6">
+                            <h1 className="text-3xl font-bold tracking-wide">RANE MaaS</h1>
+                        </div>
+                    </header>
+                    <div className="flex-1 flex items-center justify-center px-4 py-16">
+                        <div className="max-w-lg w-full bg-white rounded-lg shadow-lg p-10 text-center">
+                            <div className="w-16 h-16 rounded-full flex items-center justify-center mx-auto mb-6" style={{backgroundColor:'#f0fdf9'}}>
+                                <svg className="w-8 h-8" style={{color:'#007a6e'}} fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2.5" d="M5 13l4 4L19 7"/>
+                                </svg>
+                            </div>
+                            <h2 className="text-2xl font-bold text-gray-900 mb-2">Order Request Received</h2>
+                            <p className="text-gray-600 mb-6">
+                                Thanks, <strong>{formData.name}</strong>! We'll review your order and follow up at{' '}
+                                <strong>{formData.email}</strong> within 4 hours.
+                            </p>
+                            {quote && (
+                                <div className="rounded-lg p-4 mb-6 text-left text-sm" style={{backgroundColor:'#f0fdf9', border:'1px solid #99f6e4'}}>
+                                    <p className="font-semibold text-teal-800 mb-1">Order Summary</p>
+                                    <p className="text-teal-700">File: {file?.name || 'Manual quote request'}</p>
+                                    <p className="text-teal-700">Estimated Total: <strong>${quote.total}</strong></p>
+                                    <p className="text-teal-700">Est. Delivery: {quote.deliveryDays} business days</p>
+                                </div>
+                            )}
+                            <button
+                                onClick={onReset}
+                                className="px-8 py-3 text-white rounded-lg font-semibold transition-opacity hover:opacity-90"
+                                style={{background:'linear-gradient(135deg, #0a3d35 0%, #007a6e 100%)'}}
+                            >
+                                Start a New Order
+                            </button>
+                        </div>
+                    </div>
+                </div>
+            );
+        }
+
+        // ── Shared UI helpers ─────────────────────────────────────────────────────
+
+        function SectionHeader({ n, title, light }) {
+            return (
+                <div className="flex items-center gap-3 mb-6">
+                    <div
+                        className={`w-8 h-8 rounded-full flex items-center justify-center font-bold text-sm shrink-0 ${light ? 'bg-white' : 'text-white'}`}
+                        style={light ? {color:'#007a6e'} : {backgroundColor:'#007a6e'}}
+                    >
+                        {n}
+                    </div>
+                    <h3 className={`text-2xl font-bold ${light ? 'text-white' : 'text-gray-900'}`}>{title}</h3>
+                </div>
+            );
+        }
+
+        function SelectCard({ selected, onClick, title, sub, badge }) {
+            return (
+                <div
+                    role="button"
+                    tabIndex={0}
+                    onClick={onClick}
+                    onKeyDown={(e) => (e.key === 'Enter' || e.key === ' ') && onClick()}
+                    className="p-4 rounded-lg border-2 cursor-pointer transition-all outline-none"
+                    style={{
+                        borderColor:     selected ? '#007a6e' : '#e5e7eb',
+                        backgroundColor: selected ? '#f0fdf9' : 'white',
+                        boxShadow:       selected ? '0 0 0 3px rgba(0,122,110,0.12)' : 'none',
+                    }}
+                    aria-pressed={selected}
+                >
+                    <div className="flex justify-between items-start">
+                        <div>
+                            <p className="font-semibold text-gray-900">{title}</p>
+                            <p className="text-xs text-gray-600 mt-1">{sub}</p>
+                        </div>
+                        <span className="text-sm font-semibold ml-2 shrink-0" style={{color:'#007a6e'}}>{badge}</span>
+                    </div>
+                </div>
+            );
+        }
+
+        // ── Mount ─────────────────────────────────────────────────────────────────
+        ReactDOM.render(
+            <ErrorBoundary>
+                <RaneMaaSApp />
+            </ErrorBoundary>,
+            document.getElementById('root')
+        );
     </script>
 </body>
 </html>
